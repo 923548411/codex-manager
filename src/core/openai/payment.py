@@ -94,7 +94,8 @@ def _open_url_system_browser(url: str) -> bool:
 def generate_plus_link(
     account: Account,
     proxy: Optional[str] = None,
-    country: str = "SG",
+    country: str = "US",
+    use_promo: bool = False,
 ) -> str:
     """生成 Plus 支付链接（后端携带账号 cookie 发请求）"""
     if not account.access_token:
@@ -115,12 +116,14 @@ def generate_plus_link(
     payload = {
         "plan_name": "chatgptplusplan",
         "billing_details": {"country": country, "currency": currency},
-        "promo_campaign": {
-            "promo_campaign_id": "plus-1-month-free",
-            "is_coupon_from_query_param": False,
-        },
         "checkout_ui_mode": "custom",
     }
+
+    if use_promo:
+        payload["promo_campaign"] = {
+            "promo_campaign_id": "plus-1-month-free",
+            "is_coupon_from_query_param": False,
+        }
 
     resp = cffi_requests.post(
         PAYMENT_CHECKOUT_URL,

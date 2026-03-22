@@ -71,7 +71,12 @@ def generate_payment_link(request: GenerateLinkRequest):
 
         try:
             if request.plan_type == "plus":
-                link = generate_plus_link(account, proxy, country=request.country)
+                link = generate_plus_link(
+                    account,
+                    proxy,
+                    country=request.country,
+                    use_promo=request.use_promo
+                )
             elif request.plan_type == "team":
                 link = generate_team_link(
                     account,
@@ -180,5 +185,4 @@ def mark_subscription(account_id: int, request: MarkSubscriptionRequest):
         db.commit()
 
     return {"success": True, "subscription_type": request.subscription_type}
-
 

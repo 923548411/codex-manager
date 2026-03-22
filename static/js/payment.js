@@ -60,7 +60,7 @@ async function generateLink() {
         return;
     }
 
-    const country = document.getElementById('country-select').value || 'SG';
+    const country = document.getElementById('country-select').value || 'US';
 
     const body = {
         account_id: parseInt(accountId),
@@ -70,7 +70,7 @@ async function generateLink() {
 
     if (selectedPlan === 'team') {
         body.workspace_name = document.getElementById('workspace-name').value || 'MyTeam';
-        body.seat_quantity = parseInt(document.getElementById('seat-quantity').value) || 5;
+        body.seat_quantity = parseInt(document.getElementById('seat-quantity').value) || 2;
         body.price_interval = document.getElementById('price-interval').value;
     }
 

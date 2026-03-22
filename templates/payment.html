@@ -69,11 +69,21 @@
             <button class="theme-toggle" onclick="theme.toggle()" title="切换主题">🌙</button>
         </nav>
 
-        <!-- 主内容区 -->
+        <!-- 页面主要内容 -->
         <main class="main-content">
             <div class="page-header">
-                <h2>支付升级</h2>
-                <p class="subtitle">为账号生成 Plus 或 Team 订阅支付链接</p>
+                <h2>生成支付链接</h2>
+                <p class="subtitle">获取用于升级 Plus 或 Team 套餐的独立支付链接。</p>
+            </div>
+
+            <!-- 防风控提示框 -->
+            <div class="alert alert-warning" style="margin-bottom: 24px; border-left: 4px solid #f39c12; background-color: #fdfae6; padding: 15px; border-radius: 4px;">
+                <h4 style="margin-top: 0; color: #d35400;">⚠️ 订阅防风控建议 (避免封号)</h4>
+                <ul style="margin-bottom: 0; padding-left: 20px; color: #333; line-height: 1.6;">
+                    <li><strong>不要使用机房IP：</strong>付款环节的IP判定极为严格，强烈建议使用住宅IP节点完成支付。</li>
+                    <li><strong>Apple Pay (推荐)：</strong>生成链接后，复制发送给 iPhone/Mac 的 Safari 浏览器打开，调用 Apple Pay 支付能大幅降低卡片风控拒付率。</li>
+                    <li><strong>默认参数已优化：</strong>已移除高危的促销活动参数，Team 最低起订席位限制为官方标准的 <b>2</b> 人。</li>
+                </ul>
             </div>
 
             <div class="card">
@@ -106,12 +116,13 @@
                         <div class="form-group">
                             <label for="country-select">计费国家</label>
                             <select id="country-select" onchange="onCountryChange()">
+                                <option value="US" selected>美国 (USD)</option>
                                 <option value="SG">新加坡 (SGD)</option>
-                                <option value="US">美国 (USD)</option>
                                 <option value="TR">土耳其 (TRY)</option>
                                 <option value="JP">日本 (JPY)</option>
                                 <option value="HK">香港 (HKD)</option>
                                 <option value="GB">英国 (GBP)</option>
+                                <option value="EU">欧洲 (EUR)</option>
                                 <option value="AU">澳大利亚 (AUD)</option>
                                 <option value="CA">加拿大 (CAD)</option>
                                 <option value="IN">印度 (INR)</option>
@@ -120,8 +131,8 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>对应货币</label>
-                            <input type="text" id="currency-display" value="SGD" readonly style="background:var(--surface-hover);cursor:default">
+                            <label>结算货币</label>
+                            <input type="text" id="currency-display" value="USD" readonly style="background:var(--surface-hover);cursor:default">
                         </div>
                     </div>
 
@@ -133,8 +144,8 @@
                                 <input type="text" id="workspace-name" value="MyTeam" placeholder="MyTeam">
                             </div>
                             <div class="form-group">
-                                <label for="seat-quantity">座位数量</label>
-                                <input type="number" id="seat-quantity" value="5" min="1" max="100">
+                                <label for="seat-quantity">所需席位</label>
+                                <input type="number" id="seat-quantity" value="2" min="2" max="100">
                             </div>
                             <div class="form-group">
                                 <label for="price-interval">计费周期</label>
