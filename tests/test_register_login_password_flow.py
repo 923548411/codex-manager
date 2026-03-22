@@ -80,9 +80,12 @@ def test_submit_login_password_uses_authorize_continue_endpoint():
     engine._login_password_page_data = {
         "page": {
             "type": "password",
-            "fields": [
-                {"name": "login_password", "type": "password"},
-            ],
+            "backstack_behavior": "default",
+            "payload": {
+                "fields": [
+                    {"name": "login_password", "type": "password"},
+                ],
+            },
         }
     }
 
@@ -105,9 +108,12 @@ def test_submit_login_form_caches_password_variant_page_data():
     payload = {
         "page": {
             "type": "login-password",
-            "fields": [
-                {"name": "login_password", "type": "password"},
-            ],
+            "backstack_behavior": "default",
+            "payload": {
+                "fields": [
+                    {"name": "login_password", "type": "password"},
+                ],
+            },
         }
     }
     session = RecordingSession(DummyResponse(200, payload=payload))
@@ -120,6 +126,15 @@ def test_submit_login_form_caches_password_variant_page_data():
     assert result.page_type == "login-password"
     assert result.is_existing_account is True
     assert engine._login_password_page_data == payload
+    assert any(
+        "登录密码页 page keys: ['backstack_behavior', 'payload', 'type']" in entry
+        for entry in engine.logs
+    )
+    assert any(
+        '登录密码页 payload: {"fields": [{"name": "login_password", "type": "password"}]}'
+        in entry
+        for entry in engine.logs
+    )
 
 
 def test_validate_verification_code_uses_requested_flow():

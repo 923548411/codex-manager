@@ -313,11 +313,20 @@ class RegistrationEngine:
 
             try:
                 response_data = response.json()
-                page_type = response_data.get("page", {}).get("type", "")
+                page = response_data.get("page", {})
+                page_type = page.get("type", "")
                 self._log(f"响应页面类型: {page_type}")
 
                 if "password" in page_type:
                     self._login_password_page_data = response_data
+                    page_keys = sorted(page.keys()) if isinstance(page, dict) else []
+                    self._log(f"登录密码页 page keys: {page_keys}")
+                    page_payload = page.get("payload") if isinstance(page, dict) else None
+                    try:
+                        payload_text = json.dumps(page_payload, ensure_ascii=False, sort_keys=True)
+                    except TypeError:
+                        payload_text = str(page_payload)
+                    self._log(f"登录密码页 payload: {payload_text}")
 
                 is_existing = page_type == OPENAI_PAGE_TYPES["EMAIL_OTP_VERIFICATION"] or page_type == "password" or "login" in page_type
 
@@ -353,6 +362,9 @@ class RegistrationEngine:
                 for item in container:
                     if isinstance(item, (dict, list)):
                         collect(item)
+
+        if isinstance(page, dict) and "payload" in page:
+            collect(page["payload"])
 
         for key in ("fields", "inputs", "input", "form"):
             if key in page:
