@@ -132,7 +132,8 @@ class RegistrationEngine:
         self.session_token: Optional[str] = None  # 会话令牌
         self.logs: list = []
         self._otp_sent_at: Optional[float] = None  # OTP 发送时间戳
-        self._is_existing_account: bool = False  # 是否为已注册账号（用于自动登录）
+        self._is_existing_account: bool = False
+        self._login_password_page_data: Optional[Dict[str, Any]] = None  # 是否为已注册账号（用于自动登录）
 
     def _log(self, message: str, level: str = "info"):
         """记录日志"""
@@ -297,7 +298,7 @@ class RegistrationEngine:
                 headers["openai-sentinel-token"] = sentinel
 
             response = self.session.post(
-                OPENAI_API_ENDPOINTS["signup"],  # 端点是一样的
+                OPENAI_API_ENDPOINTS["signup"],
                 headers=headers,
                 data=login_body,
             )
@@ -310,13 +311,14 @@ class RegistrationEngine:
                     error_message=f"HTTP {response.status_code}: {response.text[:200]}"
                 )
 
-            # 解析响应判断账号状态
             try:
                 response_data = response.json()
                 page_type = response_data.get("page", {}).get("type", "")
                 self._log(f"响应页面类型: {page_type}")
 
-                # 判断是否为已注册账号
+                if page_type == "password":
+                    self._login_password_page_data = response_data
+
                 is_existing = page_type == OPENAI_PAGE_TYPES["EMAIL_OTP_VERIFICATION"] or page_type == "password" or "login" in page_type
 
                 return SignupFormResult(
@@ -334,11 +336,50 @@ class RegistrationEngine:
             self._log(f"提交登录表单失败: {e}", "error")
             return SignupFormResult(success=False, error_message=str(e))
 
+    def _get_login_password_field_name(self) -> str:
+        """从登录 password 页面元数据里推断密码字段名。"""
+        response_data = self._login_password_page_data or {}
+        page = response_data.get("page", {})
+        candidates: list[dict[str, Any]] = []
+
+        def collect(container: Any) -> None:
+            if isinstance(container, dict):
+                if any(key in container for key in ("name", "type", "kind", "input_type", "field_type")):
+                    candidates.append(container)
+                for value in container.values():
+                    if isinstance(value, (dict, list)):
+                        collect(value)
+            elif isinstance(container, list):
+                for item in container:
+                    if isinstance(item, (dict, list)):
+                        collect(item)
+
+        for key in ("fields", "inputs", "input", "form"):
+            if key in page:
+                collect(page[key])
+
+        for field in candidates:
+            name = str(field.get("name", "")).strip()
+            field_type = str(
+                field.get("type")
+                or field.get("kind")
+                or field.get("input_type")
+                or field.get("field_type")
+                or ""
+            ).lower()
+            if name and ("password" in field_type or "password" in name.lower()):
+                return name
+
+        page_keys = sorted(page.keys()) if isinstance(page, dict) else []
+        self._log(f"未推断出登录密码字段名，回退使用 password，page keys={page_keys}", "warning")
+        return "password"
+
     def _submit_login_password(self, did: str, sen_token: Optional[str]) -> SignupFormResult:
         """提交登录密码，继续 authorize 流程。"""
         try:
+            password_field_name = self._get_login_password_field_name()
             login_password_body = json.dumps({
-                "password": {"value": self.password, "kind": "password"}
+                password_field_name: {"value": self.password, "kind": "password"}
             })
 
             headers = {

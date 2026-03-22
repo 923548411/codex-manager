@@ -65,6 +65,7 @@ def make_engine() -> RegistrationEngine:
     engine.logs = []
     engine._otp_sent_at = None
     engine._is_existing_account = False
+    engine._login_password_page_data = None
     return engine
 
 
@@ -76,6 +77,14 @@ def test_submit_login_password_uses_authorize_continue_endpoint():
     session = RecordingSession(response)
     engine = make_engine()
     engine.session = session
+    engine._login_password_page_data = {
+        "page": {
+            "type": "password",
+            "fields": [
+                {"name": "login_password", "type": "password"},
+            ],
+        }
+    }
 
     result = engine._submit_login_password("device-123", "sentinel-456")
 
@@ -88,7 +97,7 @@ def test_submit_login_password_uses_authorize_continue_endpoint():
     assert call["headers"]["referer"] == "https://auth.openai.com/login/password"
     assert json.loads(call["headers"]["openai-sentinel-token"])["flow"] == "authorize_continue"
     assert json.loads(call["data"]) == {
-        "password": {"value": "secret-password", "kind": "password"}
+        "login_password": {"value": "secret-password", "kind": "password"}
     }
 
 
