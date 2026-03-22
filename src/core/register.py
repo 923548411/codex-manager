@@ -316,7 +316,7 @@ class RegistrationEngine:
                 page_type = response_data.get("page", {}).get("type", "")
                 self._log(f"响应页面类型: {page_type}")
 
-                if page_type == "password":
+                if "password" in page_type:
                     self._login_password_page_data = response_data
 
                 is_existing = page_type == OPENAI_PAGE_TYPES["EMAIL_OTP_VERIFICATION"] or page_type == "password" or "login" in page_type

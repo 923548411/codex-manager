@@ -101,6 +101,27 @@ def test_submit_login_password_uses_authorize_continue_endpoint():
     }
 
 
+def test_submit_login_form_caches_password_variant_page_data():
+    payload = {
+        "page": {
+            "type": "login-password",
+            "fields": [
+                {"name": "login_password", "type": "password"},
+            ],
+        }
+    }
+    session = RecordingSession(DummyResponse(200, payload=payload))
+    engine = make_engine()
+    engine.session = session
+
+    result = engine._submit_login_form("device-123", "sentinel-456")
+
+    assert result.success is True
+    assert result.page_type == "login-password"
+    assert result.is_existing_account is True
+    assert engine._login_password_page_data == payload
+
+
 def test_validate_verification_code_uses_requested_flow():
     response = DummyResponse(200, payload={})
     session = RecordingSession(response)
