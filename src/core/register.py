@@ -921,7 +921,7 @@ class RegistrationEngine:
                         pwd_headers["openai-sentinel-token"] = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "authorize_continue"}}'
 
                     pwd_resp = self.session.post(
-                        OPENAI_API_ENDPOINTS["register"], # 这个接口也是公用的（在注册/登录都会调用/user/register或login接口，需要看看原本怎么调用）
+                        OPENAI_API_ENDPOINTS["register"], # 这个接口在密码验证时似乎也是用 register
                         headers=pwd_headers,
                         data=login_pwd_body,
                     )
