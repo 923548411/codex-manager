@@ -25,7 +25,7 @@ class RequestConfig:
     timeout: int = 30
     max_retries: int = 3
     retry_delay: float = 1.0
-    impersonate: str = "chrome"
+    impersonate: str = "chrome110"
     verify_ssl: bool = True
     follow_redirects: bool = True
 

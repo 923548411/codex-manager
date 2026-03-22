@@ -250,10 +250,10 @@ class RegistrationEngine:
 
         return None
 
-    def _check_sentinel(self, did: str) -> Optional[str]:
+    def _check_sentinel(self, did: str, flow: str = "authorize_continue") -> Optional[str]:
         """检查 Sentinel 拦截"""
         try:
-            sen_req_body = f'{{"p":"","id":"{did}","flow":"authorize_continue"}}'
+            sen_req_body = f'{{"p":"","id":"{did}","flow":"{flow}"}}'
 
             response = self.http_client.post(
                 OPENAI_API_ENDPOINTS["sentinel"],
@@ -277,6 +277,63 @@ class RegistrationEngine:
             self._log(f"Sentinel 检查异常: {e}", "warning")
             return None
 
+    def _submit_login_form(self, did: str, sen_token: Optional[str]) -> SignupFormResult:
+        """
+        提交登录表单 (以 login 为 screen_hint)
+        """
+        try:
+            login_body = f'{{"username":{{"value":"{self.email}","kind":"email"}},"screen_hint":"login"}}'
+
+            headers = {
+                "referer": "https://auth.openai.com/login",
+                "accept": "application/json",
+                "content-type": "application/json",
+            }
+            if did:
+                headers["oai-device-id"] = did
+
+            if sen_token:
+                sentinel = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "authorize_continue"}}'
+                headers["openai-sentinel-token"] = sentinel
+
+            response = self.session.post(
+                OPENAI_API_ENDPOINTS["signup"],  # 端点是一样的
+                headers=headers,
+                data=login_body,
+            )
+
+            self._log(f"提交登录表单状态: {response.status_code}")
+
+            if response.status_code != 200:
+                return SignupFormResult(
+                    success=False,
+                    error_message=f"HTTP {response.status_code}: {response.text[:200]}"
+                )
+
+            # 解析响应判断账号状态
+            try:
+                response_data = response.json()
+                page_type = response_data.get("page", {}).get("type", "")
+                self._log(f"响应页面类型: {page_type}")
+
+                # 判断是否为已注册账号
+                is_existing = page_type == OPENAI_PAGE_TYPES["EMAIL_OTP_VERIFICATION"] or page_type == "password" or "login" in page_type
+
+                return SignupFormResult(
+                    success=True,
+                    page_type=page_type,
+                    is_existing_account=is_existing,
+                    response_data=response_data
+                )
+
+            except Exception as parse_error:
+                self._log(f"解析响应失败: {parse_error}", "warning")
+                return SignupFormResult(success=True)
+
+        except Exception as e:
+            self._log(f"提交登录表单失败: {e}", "error")
+            return SignupFormResult(success=False, error_message=str(e))
+
     def _submit_signup_form(self, did: str, sen_token: Optional[str]) -> SignupFormResult:
         """
         提交注册表单
@@ -292,6 +349,8 @@ class RegistrationEngine:
                 "accept": "application/json",
                 "content-type": "application/json",
             }
+            if did:
+                headers["oai-device-id"] = did
 
             if sen_token:
                 sentinel = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "authorize_continue"}}'
@@ -340,7 +399,7 @@ class RegistrationEngine:
             self._log(f"提交注册表单失败: {e}", "error")
             return SignupFormResult(success=False, error_message=str(e))
 
-    def _register_password(self) -> Tuple[bool, Optional[str]]:
+    def _register_password(self, did: str, sen_token: Optional[str]) -> Tuple[bool, Optional[str]]:
         """注册密码"""
         try:
             # 生成密码
@@ -354,13 +413,20 @@ class RegistrationEngine:
                 "username": self.email
             })
 
+            headers = {
+                "referer": "https://auth.openai.com/create-account/password",
+                "accept": "application/json",
+                "content-type": "application/json",
+            }
+            if did:
+                headers["oai-device-id"] = did
+            if sen_token:
+                sentinel = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "create_account"}}'
+                headers["openai-sentinel-token"] = sentinel
+
             response = self.session.post(
                 OPENAI_API_ENDPOINTS["register"],
-                headers={
-                    "referer": "https://auth.openai.com/create-account/password",
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                },
+                headers=headers,
                 data=register_body,
             )
 
@@ -413,18 +479,25 @@ class RegistrationEngine:
         except Exception as e:
             logger.warning(f"标记邮箱状态失败: {e}")
 
-    def _send_verification_code(self) -> bool:
+    def _send_verification_code(self, did: str, sen_token: Optional[str]) -> bool:
         """发送验证码"""
         try:
-            # 记录发送时间戳
+            # ���录发送时间戳
             self._otp_sent_at = time.time()
+
+            headers = {
+                "referer": "https://auth.openai.com/create-account/password",
+                "accept": "application/json",
+            }
+            if did:
+                headers["oai-device-id"] = did
+            if sen_token:
+                sentinel = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "create_account"}}'
+                headers["openai-sentinel-token"] = sentinel
 
             response = self.session.get(
                 OPENAI_API_ENDPOINTS["send_otp"],
-                headers={
-                    "referer": "https://auth.openai.com/create-account/password",
-                    "accept": "application/json",
-                },
+                headers=headers,
             )
 
             self._log(f"验证码发送状态: {response.status_code}")
@@ -459,18 +532,26 @@ class RegistrationEngine:
             self._log(f"获取验证码失败: {e}", "error")
             return None
 
-    def _validate_verification_code(self, code: str) -> bool:
+    def _validate_verification_code(self, code: str, did: str, sen_token: Optional[str]) -> bool:
         """验证验证码"""
         try:
             code_body = f'{{"code":"{code}"}}'
 
+            headers = {
+                "referer": "https://auth.openai.com/email-verification",
+                "accept": "application/json",
+                "content-type": "application/json",
+            }
+            if did:
+                headers["oai-device-id"] = did
+            if sen_token:
+                # The flow might vary, assuming 'create_account' for now but this covers both cases if we keep it consistent.
+                sentinel = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "create_account"}}'
+                headers["openai-sentinel-token"] = sentinel
+
             response = self.session.post(
                 OPENAI_API_ENDPOINTS["validate_otp"],
-                headers={
-                    "referer": "https://auth.openai.com/email-verification",
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                },
+                headers=headers,
                 data=code_body,
             )
 
@@ -481,20 +562,27 @@ class RegistrationEngine:
             self._log(f"验证验证码失败: {e}", "error")
             return False
 
-    def _create_user_account(self) -> bool:
+    def _create_user_account(self, did: str, sen_token: Optional[str]) -> bool:
         """创建用户账户"""
         try:
             user_info = generate_random_user_info()
             self._log(f"生成用户信息: {user_info['name']}, 生日: {user_info['birthdate']}")
             create_account_body = json.dumps(user_info)
 
+            headers = {
+                "referer": "https://auth.openai.com/about-you",
+                "accept": "application/json",
+                "content-type": "application/json",
+            }
+            if did:
+                headers["oai-device-id"] = did
+            if sen_token:
+                sentinel = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "create_account"}}'
+                headers["openai-sentinel-token"] = sentinel
+
             response = self.session.post(
                 OPENAI_API_ENDPOINTS["create_account"],
-                headers={
-                    "referer": "https://auth.openai.com/about-you",
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                },
+                headers=headers,
                 data=create_account_body,
             )
 
@@ -727,9 +815,9 @@ class RegistrationEngine:
                 self._log("8. [已注册账号] 跳过密码设置，OTP 已自动发送")
             else:
                 self._log("8. 注册密码...")
-                password_ok, password = self._register_password()
+                password_ok, password = self._register_password(did, sen_token)
                 if not password_ok:
-                    result.error_message = "注册密码失败"
+                    result.error_message = "注册密码��败"
                     return result
 
             # 9. [已注册账号跳过] 发送验证码
@@ -739,7 +827,7 @@ class RegistrationEngine:
                 self._otp_sent_at = time.time()
             else:
                 self._log("9. 发送验证码...")
-                if not self._send_verification_code():
+                if not self._send_verification_code(did, sen_token):
                     result.error_message = "发送验证码失败"
                     return result
 
@@ -752,16 +840,19 @@ class RegistrationEngine:
 
             # 11. 验证验证码
             self._log("11. 验证验证码...")
-            if not self._validate_verification_code(code):
+            if not self._validate_verification_code(code, did, sen_token):
                 result.error_message = "验证验证码失败"
                 return result
 
             # 12. [已注册账号跳过] 创建用户账户
             if self._is_existing_account:
-                self._log("12. [已注册账号] 跳过创建用户账户")
+                self._log("12. [已���册账号] 跳过创建用户账户")
             else:
+                self._log("11.5 重新获取 Sentinel 以创建账户...")
+                create_account_sen_token = self._check_sentinel(did, flow="create_account")
+
                 self._log("12. 创建用户账户...")
-                if not self._create_user_account():
+                if not self._create_user_account(did, create_account_sen_token):
                     result.error_message = "创建用户账户失败"
                     return result
 
@@ -795,19 +886,48 @@ class RegistrationEngine:
                     return result
 
                 self._log("12.3 重新检查 Sentinel 拦截...")
-                sen_token = self._check_sentinel(did)
+                sen_token = self._check_sentinel(did, flow="authorize_continue")
 
                 # 记录 OTP 发送时间戳 (提前记录，因为提交表单时会自动发验证码，稍微减去5秒以防边界条件)
                 self._otp_sent_at = time.time() - 5
 
-                self._log("12.4 提交登录表单(原为注册，现为登录已存在账号)...")
-                signup_result = self._submit_signup_form(did, sen_token)
+                self._log("12.4 提交登录表单(以login意图)...")
+                signup_result = self._submit_login_form(did, sen_token)
                 if not signup_result.success:
                     result.error_message = f"提交登录表单失败: {signup_result.error_message}"
                     return result
 
                 if not signup_result.is_existing_account:
                     self._log("警告: 预期应该是已存在账号，但返回的不是。", "warning")
+
+                if "password" in signup_result.page_type:
+                    self._log("12.4.5 页面提示需要输入密码，重新提交已注册密码...")
+                    # 提交密码（这里本质是登录，所以还是用之前存好的 password）
+                    # 注意：原来的 _register_password 内部会重新生成新密码，这会导致登录失败。
+                    # 所以我们需要一个新的函数 _submit_login_password 或者修改现有函数。
+                    # 我们先实现一个内部逻辑
+                    login_pwd_body = json.dumps({
+                        "password": self.password,
+                        "username": self.email
+                    })
+                    pwd_headers = {
+                        "referer": "https://auth.openai.com/login/password",
+                        "accept": "application/json",
+                        "content-type": "application/json",
+                    }
+                    if did:
+                        pwd_headers["oai-device-id"] = did
+                    if sen_token:
+                        pwd_headers["openai-sentinel-token"] = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "authorize_continue"}}'
+
+                    pwd_resp = self.session.post(
+                        OPENAI_API_ENDPOINTS["register"], # 这个接口也是公用的（在注册/登录都会调用/user/register或login接口，需要看看原本怎么调用）
+                        headers=pwd_headers,
+                        data=login_pwd_body,
+                    )
+                    self._log(f"提交登录密码状态: {pwd_resp.status_code}")
+                    if pwd_resp.status_code != 200:
+                        self._log(f"提交登录密码失败: {pwd_resp.text[:200]}", "warning")
 
                 self._log("12.5 等待新的登录验证码...")
                 code = self._get_verification_code()
@@ -816,7 +936,7 @@ class RegistrationEngine:
                     return result
 
                 self._log("12.6 验证登录验证码...")
-                if not self._validate_verification_code(code):
+                if not self._validate_verification_code(code, did, sen_token):
                     result.error_message = "验证登录验证码失败"
                     return result
 
