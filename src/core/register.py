@@ -765,6 +765,65 @@ class RegistrationEngine:
                     result.error_message = "创建用户账户失败"
                     return result
 
+                # ==========================================
+                # NEW LOGIC: Split Session to avoid risk
+                # ==========================================
+                self._log("=" * 60)
+                self._log("账号创建成功，为了规避风控，开始重建会话以重新登录...")
+                self._log("=" * 60)
+
+                # 关闭并丢弃旧的会话
+                try:
+                    self.http_client.close()
+                except Exception:
+                    pass
+
+                # 初始化全新的会话
+                self.http_client = OpenAIHTTPClient(proxy_url=self.proxy_url)
+                self.session = self.http_client.session
+
+                # 重新开始 OAuth 流程
+                self._log("12.1 重新开始 OAuth 授权流程...")
+                if not self._start_oauth():
+                    result.error_message = "重新开始 OAuth 流程失败"
+                    return result
+
+                self._log("12.2 重新获取 Device ID...")
+                did = self._get_device_id()
+                if not did:
+                    result.error_message = "重新获取 Device ID 失败"
+                    return result
+
+                self._log("12.3 重新检查 Sentinel 拦截...")
+                sen_token = self._check_sentinel(did)
+
+                # 记录 OTP 发送时间戳 (提前记录，因为提交表单时会自动发验证码，稍微减去5秒以防边界条件)
+                self._otp_sent_at = time.time() - 5
+
+                self._log("12.4 提交登录表单(原为注册，现为登录已存在账号)...")
+                signup_result = self._submit_signup_form(did, sen_token)
+                if not signup_result.success:
+                    result.error_message = f"提交登录表单失败: {signup_result.error_message}"
+                    return result
+
+                if not signup_result.is_existing_account:
+                    self._log("警告: 预期应该是已存在账号，但返回的不是。", "warning")
+
+                self._log("12.5 等待新的登录验证码...")
+                code = self._get_verification_code()
+                if not code:
+                    result.error_message = "获取登录验证码失败"
+                    return result
+
+                self._log("12.6 验证登录验证码...")
+                if not self._validate_verification_code(code):
+                    result.error_message = "验证登录验证码失败"
+                    return result
+
+                self._log("重置会话并登录验证完成。")
+                self._log("=" * 60)
+                # ==========================================
+
             # 13. 获取 Workspace ID
             self._log("13. 获取 Workspace ID...")
             workspace_id = self._get_workspace_id()

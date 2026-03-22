@@ -32,10 +32,11 @@ class GenerateLinkRequest(BaseModel):
     plan_type: str  # 'plus' or 'team'
     workspace_name: str = "MyTeam"
     price_interval: str = "month"
-    seat_quantity: int = 5
+    seat_quantity: int = 2
     proxy: Optional[str] = None
     auto_open: bool = False  # 生成后是否自动无痕打开
-    country: str = "SG"  # 计费国家，决定货币  # 生成后是否自动无痕打开
+    country: str = "US"  # 计费国家，决定货币，默认美区
+    use_promo: bool = False  # 是否使用促销码（高危选项）
 
 
 class OpenIncognitoRequest(BaseModel):
@@ -79,6 +80,7 @@ def generate_payment_link(request: GenerateLinkRequest):
                     seat_quantity=request.seat_quantity,
                     proxy=proxy,
                     country=request.country,
+                    use_promo=request.use_promo,
                 )
             else:
                 raise HTTPException(status_code=400, detail="plan_type 必须为 plus 或 team")

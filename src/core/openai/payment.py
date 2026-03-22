@@ -141,9 +141,10 @@ def generate_team_link(
     account: Account,
     workspace_name: str = "MyTeam",
     price_interval: str = "month",
-    seat_quantity: int = 5,
+    seat_quantity: int = 2,
     proxy: Optional[str] = None,
-    country: str = "SG",
+    country: str = "US",
+    use_promo: bool = False,
 ) -> str:
     """生成 Team 支付链接（后端携带账号 cookie 发请求）"""
     if not account.access_token:
@@ -169,13 +170,16 @@ def generate_team_link(
             "seat_quantity": seat_quantity,
         },
         "billing_details": {"country": country, "currency": currency},
-        "promo_campaign": {
-            "promo_campaign_id": "team-1-month-free",
-            "is_coupon_from_query_param": True,
-        },
         "cancel_url": "https://chatgpt.com/#pricing",
         "checkout_ui_mode": "custom",
     }
+
+    # 默认关闭高危的羊毛参数以规避风控
+    if use_promo:
+        payload["promo_campaign"] = {
+            "promo_campaign_id": "team-1-month-free",
+            "is_coupon_from_query_param": True,
+        }
 
     resp = cffi_requests.post(
         PAYMENT_CHECKOUT_URL,
