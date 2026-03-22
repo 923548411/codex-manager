@@ -334,6 +334,56 @@ class RegistrationEngine:
             self._log(f"提交登录表单失败: {e}", "error")
             return SignupFormResult(success=False, error_message=str(e))
 
+    def _submit_login_password(self, did: str, sen_token: Optional[str]) -> SignupFormResult:
+        """提交登录密码，继续 authorize 流程。"""
+        try:
+            login_password_body = json.dumps({
+                "password": {"value": self.password, "kind": "password"}
+            })
+
+            headers = {
+                "referer": "https://auth.openai.com/login/password",
+                "accept": "application/json",
+                "content-type": "application/json",
+            }
+            if did:
+                headers["oai-device-id"] = did
+            if sen_token:
+                sentinel = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "authorize_continue"}}'
+                headers["openai-sentinel-token"] = sentinel
+
+            response = self.session.post(
+                OPENAI_API_ENDPOINTS["signup"],
+                headers=headers,
+                data=login_password_body,
+            )
+
+            self._log(f"提交登录密码状态: {response.status_code}")
+
+            if response.status_code != 200:
+                return SignupFormResult(
+                    success=False,
+                    error_message=f"HTTP {response.status_code}: {response.text[:200]}"
+                )
+
+            try:
+                response_data = response.json()
+                page_type = response_data.get("page", {}).get("type", "")
+                self._log(f"登录密码响应页面类型: {page_type}")
+                return SignupFormResult(
+                    success=True,
+                    page_type=page_type,
+                    is_existing_account=True,
+                    response_data=response_data,
+                )
+            except Exception as parse_error:
+                self._log(f"解析登录密码响应失败: {parse_error}", "warning")
+                return SignupFormResult(success=True)
+
+        except Exception as e:
+            self._log(f"提交登录密码失败: {e}", "error")
+            return SignupFormResult(success=False, error_message=str(e))
+
     def _submit_signup_form(self, did: str, sen_token: Optional[str]) -> SignupFormResult:
         """
         提交注册表单
@@ -532,7 +582,13 @@ class RegistrationEngine:
             self._log(f"获取验证码失败: {e}", "error")
             return None
 
-    def _validate_verification_code(self, code: str, did: str, sen_token: Optional[str]) -> bool:
+    def _validate_verification_code(
+        self,
+        code: str,
+        did: str,
+        sen_token: Optional[str],
+        flow: str = "create_account",
+    ) -> bool:
         """验证验证码"""
         try:
             code_body = f'{{"code":"{code}"}}'
@@ -545,8 +601,7 @@ class RegistrationEngine:
             if did:
                 headers["oai-device-id"] = did
             if sen_token:
-                # The flow might vary, assuming 'create_account' for now but this covers both cases if we keep it consistent.
-                sentinel = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "create_account"}}'
+                sentinel = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "{flow}"}}'
                 headers["openai-sentinel-token"] = sentinel
 
             response = self.session.post(
@@ -840,7 +895,7 @@ class RegistrationEngine:
 
             # 11. 验证验证码
             self._log("11. 验证验证码...")
-            if not self._validate_verification_code(code, did, sen_token):
+            if not self._validate_verification_code(code, did, sen_token, flow="create_account"):
                 result.error_message = "验证验证码失败"
                 return result
 
@@ -902,32 +957,10 @@ class RegistrationEngine:
 
                 if "password" in signup_result.page_type:
                     self._log("12.4.5 页面提示需要输入密码，重新提交已注册密码...")
-                    # 提交密码（这里本质是登录，所以还是用之前存好的 password）
-                    # 注意：原来的 _register_password 内部会重新生成新密码，这会导致登录失败。
-                    # 所以我们需要一个新的函数 _submit_login_password 或者修改现有函数。
-                    # 我们先实现一个内部逻辑
-                    login_pwd_body = json.dumps({
-                        "password": self.password,
-                        "username": self.email
-                    })
-                    pwd_headers = {
-                        "referer": "https://auth.openai.com/login/password",
-                        "accept": "application/json",
-                        "content-type": "application/json",
-                    }
-                    if did:
-                        pwd_headers["oai-device-id"] = did
-                    if sen_token:
-                        pwd_headers["openai-sentinel-token"] = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "authorize_continue"}}'
-
-                    pwd_resp = self.session.post(
-                        OPENAI_API_ENDPOINTS["register"], # 这个接口在密码验证时似乎也是用 register
-                        headers=pwd_headers,
-                        data=login_pwd_body,
-                    )
-                    self._log(f"提交登录密码状态: {pwd_resp.status_code}")
-                    if pwd_resp.status_code != 200:
-                        self._log(f"提交登录密码失败: {pwd_resp.text[:200]}", "warning")
+                    login_password_result = self._submit_login_password(did, sen_token)
+                    if not login_password_result.success:
+                        result.error_message = f"提交登录密码失败: {login_password_result.error_message}"
+                        return result
 
                 self._log("12.5 等待新的登录验证码...")
                 code = self._get_verification_code()
@@ -936,7 +969,7 @@ class RegistrationEngine:
                     return result
 
                 self._log("12.6 验证登录验证码...")
-                if not self._validate_verification_code(code, did, sen_token):
+                if not self._validate_verification_code(code, did, sen_token, flow="authorize_continue"):
                     result.error_message = "验证登录验证码失败"
                     return result
 
