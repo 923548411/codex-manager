@@ -1,20 +1,23 @@
 @echo off
-REM Windows 打包脚本
+setlocal
 
-echo === 构建平台: Windows ===
+echo === Build platform: Windows ===
 
-REM 安装打包依赖
-pip install pyinstaller --quiet
+python -m pip install -r requirements.txt --quiet
+if errorlevel 1 exit /b 1
 
-REM 执行打包
-pyinstaller codex_register.spec --clean --noconfirm
+python -m pip install pyinstaller --quiet
+if errorlevel 1 exit /b 1
 
-IF EXIST dist\codex-register.exe (
-    FOR /F "tokens=*" %%i IN ('powershell -Command "[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture"') DO SET ARCH=%%i
-    SET OUTPUT=dist\codex-register-windows-%ARCH%.exe
-    MOVE dist\codex-register.exe "%OUTPUT%"
-    echo === 构建完成: %OUTPUT% ===
-) ELSE (
-    echo === 构建失败，未找到输出文件 ===
+python -m PyInstaller codex_register.spec --clean --noconfirm
+if errorlevel 1 exit /b 1
+
+set "OUTPUT=dist\codex-register-windows-X64.exe"
+
+if exist dist\codex-register.exe (
+    move /Y dist\codex-register.exe "%OUTPUT%" >nul
+    echo === Build complete: %OUTPUT% ===
+) else (
+    echo === Build failed: dist\codex-register.exe not found ===
     exit /b 1
 )
