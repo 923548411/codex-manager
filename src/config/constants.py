@@ -63,6 +63,7 @@ OAUTH_SCOPE = "openid email profile offline_access"
 OPENAI_API_ENDPOINTS = {
     "sentinel": "https://sentinel.openai.com/backend-api/sentinel/req",
     "signup": "https://auth.openai.com/api/accounts/authorize/continue",
+    "password_verify": "https://auth.openai.com/api/accounts/password/verify",
     "register": "https://auth.openai.com/api/accounts/user/register",
     "send_otp": "https://auth.openai.com/api/accounts/email-otp/send",
     "validate_otp": "https://auth.openai.com/api/accounts/email-otp/validate",

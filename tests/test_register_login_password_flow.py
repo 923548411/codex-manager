@@ -69,7 +69,7 @@ def make_engine() -> RegistrationEngine:
     return engine
 
 
-def test_submit_login_password_uses_authorize_continue_endpoint():
+def test_submit_login_password_logs_outgoing_request_context_for_login_password_page():
     response = DummyResponse(
         200,
         payload={"page": {"type": OPENAI_PAGE_TYPES["EMAIL_OTP_VERIFICATION"]}},
@@ -79,12 +79,10 @@ def test_submit_login_password_uses_authorize_continue_endpoint():
     engine.session = session
     engine._login_password_page_data = {
         "page": {
-            "type": "password",
+            "type": "login_password",
             "backstack_behavior": "default",
             "payload": {
-                "fields": [
-                    {"name": "login_password", "type": "password"},
-                ],
+                "passwordless_disabled": False,
             },
         }
     }
@@ -96,23 +94,25 @@ def test_submit_login_password_uses_authorize_continue_endpoint():
     assert len(session.calls) == 1
 
     call = session.calls[0]
-    assert call["url"] == OPENAI_API_ENDPOINTS["signup"]
+    assert call["url"] == OPENAI_API_ENDPOINTS["password_verify"]
     assert call["headers"]["referer"] == "https://auth.openai.com/login/password"
-    assert json.loads(call["headers"]["openai-sentinel-token"])["flow"] == "authorize_continue"
-    assert json.loads(call["data"]) == {
-        "login_password": {"value": "secret-password", "kind": "password"}
-    }
+    assert json.loads(call["headers"]["openai-sentinel-token"])["flow"] == "password_verify"
+    assert json.loads(call["data"]) == {"password": "secret-password"}
+    assert any("登录密码请求上下文:" in entry for entry in engine.logs)
+    context_entry = next(entry for entry in engine.logs if "登录密码请求上下文:" in entry)
+    assert '"page_type": "login_password"' in context_entry
+    assert '"passwordless_disabled": false' in context_entry
+    assert '"request_url": "https://auth.openai.com/api/accounts/password/verify"' in context_entry
+    assert '"request_body": {"password": "secret-password"}' in context_entry
 
 
 def test_submit_login_form_caches_password_variant_page_data():
     payload = {
         "page": {
-            "type": "login-password",
+            "type": "login_password",
             "backstack_behavior": "default",
             "payload": {
-                "fields": [
-                    {"name": "login_password", "type": "password"},
-                ],
+                "passwordless_disabled": False,
             },
         }
     }
@@ -123,7 +123,7 @@ def test_submit_login_form_caches_password_variant_page_data():
     result = engine._submit_login_form("device-123", "sentinel-456")
 
     assert result.success is True
-    assert result.page_type == "login-password"
+    assert result.page_type == "login_password"
     assert result.is_existing_account is True
     assert engine._login_password_page_data == payload
     assert any(
@@ -131,10 +131,26 @@ def test_submit_login_form_caches_password_variant_page_data():
         for entry in engine.logs
     )
     assert any(
-        '登录密码页 payload: {"fields": [{"name": "login_password", "type": "password"}]}'
+        '登录密码页 payload: {"passwordless_disabled": false}'
         in entry
         for entry in engine.logs
     )
+
+
+def test_submit_login_form_uses_real_oauth_username_body_without_screen_hint():
+    session = RecordingSession(DummyResponse(200, payload={"page": {"type": "login"}}))
+    engine = make_engine()
+    engine.session = session
+
+    result = engine._submit_login_form("device-123", "sentinel-456")
+
+    assert result.success is True
+    assert len(session.calls) == 1
+    request_body = json.loads(session.calls[0]["data"])
+    assert request_body == {
+        "username": {"kind": "email", "value": "user@example.com"}
+    }
+    assert "screen_hint" not in request_body
 
 
 def test_validate_verification_code_uses_requested_flow():

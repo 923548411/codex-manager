@@ -280,10 +280,15 @@ class RegistrationEngine:
 
     def _submit_login_form(self, did: str, sen_token: Optional[str]) -> SignupFormResult:
         """
-        提交登录表单 (以 login 为 screen_hint)
+        提交登录表单
         """
         try:
-            login_body = f'{{"username":{{"value":"{self.email}","kind":"email"}},"screen_hint":"login"}}'
+            login_body = json.dumps({
+                "username": {
+                    "kind": "email",
+                    "value": self.email,
+                }
+            })
 
             headers = {
                 "referer": "https://auth.openai.com/login",
@@ -345,54 +350,18 @@ class RegistrationEngine:
             self._log(f"提交登录表单失败: {e}", "error")
             return SignupFormResult(success=False, error_message=str(e))
 
-    def _get_login_password_field_name(self) -> str:
-        """从登录 password 页面元数据里推断密码字段名。"""
-        response_data = self._login_password_page_data or {}
-        page = response_data.get("page", {})
-        candidates: list[dict[str, Any]] = []
-
-        def collect(container: Any) -> None:
-            if isinstance(container, dict):
-                if any(key in container for key in ("name", "type", "kind", "input_type", "field_type")):
-                    candidates.append(container)
-                for value in container.values():
-                    if isinstance(value, (dict, list)):
-                        collect(value)
-            elif isinstance(container, list):
-                for item in container:
-                    if isinstance(item, (dict, list)):
-                        collect(item)
-
-        if isinstance(page, dict) and "payload" in page:
-            collect(page["payload"])
-
-        for key in ("fields", "inputs", "input", "form"):
-            if key in page:
-                collect(page[key])
-
-        for field in candidates:
-            name = str(field.get("name", "")).strip()
-            field_type = str(
-                field.get("type")
-                or field.get("kind")
-                or field.get("input_type")
-                or field.get("field_type")
-                or ""
-            ).lower()
-            if name and ("password" in field_type or "password" in name.lower()):
-                return name
-
-        page_keys = sorted(page.keys()) if isinstance(page, dict) else []
-        self._log(f"未推断出登录密码字段名，回退使用 password，page keys={page_keys}", "warning")
-        return "password"
-
     def _submit_login_password(self, did: str, sen_token: Optional[str]) -> SignupFormResult:
-        """提交登录密码，继续 authorize 流程。"""
+        """提交登录密码，进入 password_verify 流程。"""
         try:
-            password_field_name = self._get_login_password_field_name()
-            login_password_body = json.dumps({
-                password_field_name: {"value": self.password, "kind": "password"}
-            })
+            page = (self._login_password_page_data or {}).get("page", {})
+            page_type = page.get("type", "") if isinstance(page, dict) else ""
+            page_payload = page.get("payload") if isinstance(page, dict) else None
+            password_verify_token = None
+            if did and getattr(self, "http_client", None):
+                password_verify_token = self._check_sentinel(did, flow="password_verify")
+
+            effective_sen_token = password_verify_token or sen_token
+            login_password_body = json.dumps({"password": self.password})
 
             headers = {
                 "referer": "https://auth.openai.com/login/password",
@@ -401,12 +370,33 @@ class RegistrationEngine:
             }
             if did:
                 headers["oai-device-id"] = did
-            if sen_token:
-                sentinel = f'{{"p": "", "t": "", "c": "{sen_token}", "id": "{did}", "flow": "authorize_continue"}}'
+            if effective_sen_token:
+                sentinel = (
+                    f'{{"p": "", "t": "", "c": "{effective_sen_token}", '
+                    f'"id": "{did}", "flow": "password_verify"}}'
+                )
                 headers["openai-sentinel-token"] = sentinel
 
+            request_context = {
+                "page_type": page_type,
+                "page_payload": page_payload,
+                "request_url": OPENAI_API_ENDPOINTS["password_verify"],
+                "refreshed_password_verify_sentinel": password_verify_token is not None,
+                "request_headers": {
+                    "referer": headers.get("referer"),
+                    "accept": headers.get("accept"),
+                    "content-type": headers.get("content-type"),
+                    "oai-device-id": headers.get("oai-device-id"),
+                    "has_openai_sentinel_token": "openai-sentinel-token" in headers,
+                },
+                "request_body": json.loads(login_password_body),
+            }
+            self._log(
+                f"登录密码请求上下文: {json.dumps(request_context, ensure_ascii=False, sort_keys=True)}"
+            )
+
             response = self.session.post(
-                OPENAI_API_ENDPOINTS["signup"],
+                OPENAI_API_ENDPOINTS["password_verify"],
                 headers=headers,
                 data=login_password_body,
             )
