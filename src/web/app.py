@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..config.settings import get_settings
+from .account_pool_controller import get_account_pool_controller
 from .routes import api_router
 from .routes.websocket import router as ws_router
 from .task_manager import task_manager
@@ -182,6 +183,7 @@ def create_app() -> FastAPI:
         # 设置 TaskManager 的事件循环
         loop = asyncio.get_event_loop()
         task_manager.set_loop(loop)
+        await get_account_pool_controller().start_if_enabled()
 
         logger.info("=" * 50)
         logger.info(f"{settings.app_name} v{settings.app_version} 启动中...")
@@ -192,6 +194,7 @@ def create_app() -> FastAPI:
     @app.on_event("shutdown")
     async def shutdown_event():
         """应用关闭事件"""
+        await get_account_pool_controller().stop()
         logger.info("应用关闭")
 
     return app

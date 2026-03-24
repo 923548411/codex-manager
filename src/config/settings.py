@@ -25,6 +25,7 @@ class SettingCategory(str, Enum):
     CUSTOM_DOMAIN = "moe_mail"
     SECURITY = "security"
     CPA = "cpa"
+    ACCOUNT_POOL = "account_pool"
 
 
 @dataclass
@@ -343,6 +344,86 @@ SETTING_DEFINITIONS: Dict[str, SettingDefinition] = {
         is_secret=True
     ),
 
+    # 账号池控制器配置
+    "account_pool_enabled": SettingDefinition(
+        db_key="account_pool.enabled",
+        default_value=False,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="是否启用账号池控制器"
+    ),
+    "account_pool_target_count": SettingDefinition(
+        db_key="account_pool.target_count",
+        default_value=0,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="外部账号池目标数量"
+    ),
+    "account_pool_poll_interval_seconds": SettingDefinition(
+        db_key="account_pool.poll_interval_seconds",
+        default_value=300,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="账号池控制器巡检间隔（秒）"
+    ),
+    "account_pool_health_check_batch_size": SettingDefinition(
+        db_key="account_pool.health_check_batch_size",
+        default_value=20,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="每轮健康检查的账号数量"
+    ),
+    "account_pool_registration_email_service_type": SettingDefinition(
+        db_key="account_pool.registration_email_service_type",
+        default_value="tempmail",
+        category=SettingCategory.ACCOUNT_POOL,
+        description="补量注册使用的邮箱服务类型"
+    ),
+    "account_pool_registration_interval_min": SettingDefinition(
+        db_key="account_pool.registration_interval_min",
+        default_value=5,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="补量注册最小间隔秒数"
+    ),
+    "account_pool_registration_interval_max": SettingDefinition(
+        db_key="account_pool.registration_interval_max",
+        default_value=15,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="补量注册最大间隔秒数"
+    ),
+    "account_pool_registration_concurrency": SettingDefinition(
+        db_key="account_pool.registration_concurrency",
+        default_value=1,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="补量注册并发数"
+    ),
+    "account_pool_max_registration_burst": SettingDefinition(
+        db_key="account_pool.max_registration_burst",
+        default_value=5,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="单轮最大补量数量"
+    ),
+    "account_pool_retry_max_retries": SettingDefinition(
+        db_key="account_pool.retry_max_retries",
+        default_value=3,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="控制器失败重试次数"
+    ),
+    "account_pool_retry_base_delay_seconds": SettingDefinition(
+        db_key="account_pool.retry_base_delay_seconds",
+        default_value=5,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="控制器退避基础延迟（秒）"
+    ),
+    "account_pool_retry_max_delay_seconds": SettingDefinition(
+        db_key="account_pool.retry_max_delay_seconds",
+        default_value=300,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="控制器退避最大延迟（秒）"
+    ),
+    "account_pool_cpa_service_id": SettingDefinition(
+        db_key="account_pool.cpa_service_id",
+        default_value=0,
+        category=SettingCategory.ACCOUNT_POOL,
+        description="账号池控制器使用的 CPA 服务 ID，0 表示自动选择"
+    ),
+
     # 验证码配置
     "email_code_timeout": SettingDefinition(
         db_key="email_code.timeout",
@@ -405,6 +486,19 @@ SETTING_TYPES: Dict[str, Type] = {
     "tempmail_max_retries": int,
     "tm_enabled": bool,
     "cpa_enabled": bool,
+    "account_pool_enabled": bool,
+    "account_pool_target_count": int,
+    "account_pool_poll_interval_seconds": int,
+    "account_pool_health_check_batch_size": int,
+    "account_pool_registration_email_service_type": str,
+    "account_pool_registration_interval_min": int,
+    "account_pool_registration_interval_max": int,
+    "account_pool_registration_concurrency": int,
+    "account_pool_max_registration_burst": int,
+    "account_pool_retry_max_retries": int,
+    "account_pool_retry_base_delay_seconds": int,
+    "account_pool_retry_max_delay_seconds": int,
+    "account_pool_cpa_service_id": int,
     "email_code_timeout": int,
     "email_code_poll_interval": int,
     "outlook_provider_priority": list,
@@ -688,6 +782,21 @@ class Settings(BaseModel):
     cpa_enabled: bool = False
     cpa_api_url: str = ""
     cpa_api_token: SecretStr = SecretStr("")
+
+    # 账号池控制器配置
+    account_pool_enabled: bool = False
+    account_pool_target_count: int = 0
+    account_pool_poll_interval_seconds: int = 300
+    account_pool_health_check_batch_size: int = 20
+    account_pool_registration_email_service_type: str = "tempmail"
+    account_pool_registration_interval_min: int = 5
+    account_pool_registration_interval_max: int = 15
+    account_pool_registration_concurrency: int = 1
+    account_pool_max_registration_burst: int = 5
+    account_pool_retry_max_retries: int = 3
+    account_pool_retry_base_delay_seconds: int = 5
+    account_pool_retry_max_delay_seconds: int = 300
+    account_pool_cpa_service_id: int = 0
 
     # 验证码配置
     email_code_timeout: int = 120

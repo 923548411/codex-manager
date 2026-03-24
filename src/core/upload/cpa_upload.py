@@ -58,6 +58,27 @@ def _extract_cpa_error(response) -> str:
     return error_msg
 
 
+def _extract_cpa_count(payload: Any) -> Optional[int]:
+    """尽量兼容不同响应结构，提取 CPA 外部池数量。"""
+    if isinstance(payload, list):
+        return len(payload)
+
+    if not isinstance(payload, dict):
+        return None
+
+    for key in ("count", "total", "available_count"):
+        value = payload.get(key)
+        if isinstance(value, int):
+            return value
+
+    for key in ("items", "data", "files", "accounts", "results", "auth_files"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return len(value)
+
+    return None
+
+
 def _post_cpa_auth_file_multipart(upload_url: str, filename: str, file_content: bytes, api_token: str):
     mime = CurlMime()
     mime.addpart(
@@ -190,6 +211,59 @@ def upload_to_cpa(
     except Exception as e:
         logger.error(f"CPA 上传异常: {e}")
         return False, f"上传异常: {str(e)}"
+
+
+def get_cpa_pool_count(
+    api_url: str = None,
+    api_token: str = None,
+) -> Tuple[bool, Optional[int], Optional[str]]:
+    """
+    查询 CPA 外部账号池数量。
+
+    Returns:
+        (是否成功, 数量, 错误信息)
+    """
+    settings = get_settings()
+    effective_url = api_url or settings.cpa_api_url
+    effective_token = api_token or (settings.cpa_api_token.get_secret_value() if settings.cpa_api_token else "")
+
+    if not api_url and not settings.cpa_enabled:
+        return False, None, "CPA 未启用"
+    if not effective_url:
+        return False, None, "CPA API URL 未配置"
+    if not effective_token:
+        return False, None, "CPA API Token 未配置"
+
+    query_url = _normalize_cpa_auth_files_url(effective_url)
+    try:
+        response = cffi_requests.get(
+            query_url,
+            headers=_build_cpa_headers(effective_token),
+            proxies=None,
+            timeout=15,
+            impersonate="chrome110",
+        )
+    except Exception as exc:
+        logger.error("查询 CPA 外部池数量异常: %s", exc)
+        return False, None, f"查询异常: {exc}"
+
+    if response.status_code == 200:
+        try:
+            payload = response.json()
+        except Exception:
+            return False, None, "CPA 返回内容不是有效 JSON"
+        count = _extract_cpa_count(payload)
+        if count is None:
+            return False, None, "无法从 CPA 响应中解析账号数量"
+        return True, count, None
+    if response.status_code == 401:
+        return False, None, "CPA API Token 无效"
+    if response.status_code == 403:
+        return False, None, "CPA 无权访问外部池列表"
+    if response.status_code == 404:
+        return False, None, "未找到 CPA auth-files 接口"
+
+    return False, None, _extract_cpa_error(response)
 
 
 def batch_upload_to_cpa(

@@ -41,6 +41,7 @@
                 <button class="tab-btn" data-tab="upload">☁️ 上传</button>
                 <button class="tab-btn" data-tab="outlook">📮 Outlook配置</button>
                 <button class="tab-btn" data-tab="registration">⚙️ 注册配置</button>
+                <button class="tab-btn" data-tab="account-pool">🏊 账号池控制器</button>
                 <button class="tab-btn" data-tab="email-code">📧 验证码配置</button>
                 <button class="tab-btn" data-tab="database">💾 数据库</button>
             </div>
@@ -488,6 +489,185 @@
                                 <button type="submit" class="btn btn-primary">💾 保存设置</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 账号池控制器 -->
+            <div class="tab-content" id="account-pool-tab">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>账号池控制器设置</h3>
+                        <span class="hint">按 CPA 外部可用池数量自动补量，并周期清理失效账号</span>
+                    </div>
+                    <div class="card-body">
+                        <form id="account-pool-settings-form">
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="account-pool-enabled" name="enabled">
+                                    启用账号池控制器
+                                </label>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="account-pool-target-count">目标账号数量</label>
+                                    <input type="number" id="account-pool-target-count" min="0" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="account-pool-poll-interval-seconds">巡检间隔 (秒)</label>
+                                    <input type="number" id="account-pool-poll-interval-seconds" min="5" value="300">
+                                </div>
+                                <div class="form-group">
+                                    <label for="account-pool-health-check-batch-size">健康检查批量</label>
+                                    <input type="number" id="account-pool-health-check-batch-size" min="1" value="20">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="account-pool-registration-email-service-type">注册邮箱服务类型</label>
+                                    <select id="account-pool-registration-email-service-type">
+                                        <option value="tempmail">TempMail</option>
+                                        <option value="outlook">Outlook</option>
+                                        <option value="moe_mail">Moe Mail</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="account-pool-registration-concurrency">注册并发数</label>
+                                    <input type="number" id="account-pool-registration-concurrency" min="1" value="1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="account-pool-max-registration-burst">单轮最大补量</label>
+                                    <input type="number" id="account-pool-max-registration-burst" min="1" value="5">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="account-pool-registration-interval-min">注册最小等待 (秒)</label>
+                                    <input type="number" id="account-pool-registration-interval-min" min="0" value="5">
+                                </div>
+                                <div class="form-group">
+                                    <label for="account-pool-registration-interval-max">注册最大等待 (秒)</label>
+                                    <input type="number" id="account-pool-registration-interval-max" min="0" value="15">
+                                </div>
+                                <div class="form-group">
+                                    <label for="account-pool-cpa-service-id">CPA 目标服务</label>
+                                    <select id="account-pool-cpa-service-id">
+                                        <option value="0">自动选择启用服务</option>
+                                    </select>
+                                    <p class="hint">`0` 表示按优先级自动选择；下方上传页的 CPA 服务列表会同步刷新这里。</p>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="account-pool-retry-max-retries">最大重试次数</label>
+                                    <input type="number" id="account-pool-retry-max-retries" min="0" value="3">
+                                </div>
+                                <div class="form-group">
+                                    <label for="account-pool-retry-base-delay-seconds">基础退避 (秒)</label>
+                                    <input type="number" id="account-pool-retry-base-delay-seconds" min="1" value="5">
+                                </div>
+                                <div class="form-group">
+                                    <label for="account-pool-retry-max-delay-seconds">最大退避 (秒)</label>
+                                    <input type="number" id="account-pool-retry-max-delay-seconds" min="1" value="300">
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">💾 保存设置</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card" id="account-pool-status-card" style="margin-top: var(--spacing-lg);">
+                    <div class="card-header">
+                        <h3>运行状态</h3>
+                        <div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap;">
+                            <button type="button" class="btn btn-secondary btn-sm" id="account-pool-refresh-btn">🔄 刷新状态</button>
+                            <button type="button" class="btn btn-primary btn-sm" id="account-pool-start-btn">▶️ 启动</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="account-pool-stop-btn">⏹️ 停止</button>
+                            <button type="button" class="btn btn-warning btn-sm" id="account-pool-run-once-btn">🩺 立即巡检</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-grid" style="margin-bottom: var(--spacing-lg);">
+                            <div class="info-item">
+                                <span class="label">循环状态</span>
+                                <span id="account-pool-status-running" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">配置启用</span>
+                                <span id="account-pool-status-enabled" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">外部可用池</span>
+                                <span id="account-pool-status-external-count" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">本地活跃账号</span>
+                                <span id="account-pool-status-local-count" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">当前 CPA 目标</span>
+                                <span id="account-pool-status-cpa-target" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">连续失败次数</span>
+                                <span id="account-pool-status-failure-count" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">最近开始时间</span>
+                                <span id="account-pool-status-last-started" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">最近结束时间</span>
+                                <span id="account-pool-status-last-finished" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">下次重试时间</span>
+                                <span id="account-pool-status-next-retry" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">本轮补量数</span>
+                                <span id="account-pool-status-triggered-count" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">删除账号数</span>
+                                <span id="account-pool-status-deleted-count" class="value">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">瞬时失败数</span>
+                                <span id="account-pool-status-transient-count" class="value">-</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="account-pool-status-batch-id">最近触发批次</label>
+                            <div id="account-pool-status-batch-id" class="hint" style="white-space: pre-wrap;">-</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="account-pool-status-last-error">最近错误</label>
+                            <div id="account-pool-status-last-error" class="hint" style="white-space: pre-wrap;">-</div>
+                        </div>
+
+                        <details id="account-pool-deleted-details" style="margin-top: var(--spacing-lg);">
+                            <summary>删除账号明细</summary>
+                            <ul id="account-pool-deleted-list" class="info-list" style="margin-top: var(--spacing-sm);">
+                                <li>暂无删除记录</li>
+                            </ul>
+                        </details>
+
+                        <details id="account-pool-transient-details" style="margin-top: var(--spacing-md);">
+                            <summary>瞬时失败明细</summary>
+                            <ul id="account-pool-transient-list" class="info-list" style="margin-top: var(--spacing-sm);">
+                                <li>暂无失败记录</li>
+                            </ul>
+                        </details>
                     </div>
                 </div>
             </div>

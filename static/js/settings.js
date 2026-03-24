@@ -8,6 +8,7 @@ const elements = {
     tabs: document.querySelectorAll('.tab-btn'),
     tabContents: document.querySelectorAll('.tab-content'),
     registrationForm: document.getElementById('registration-settings-form'),
+    accountPoolForm: document.getElementById('account-pool-settings-form'),
     backupBtn: document.getElementById('backup-btn'),
     cleanupBtn: document.getElementById('cleanup-btn'),
     addEmailServiceBtn: document.getElementById('add-email-service-btn'),
@@ -71,11 +72,40 @@ const elements = {
     // Outlook 设置
     outlookSettingsForm: document.getElementById('outlook-settings-form'),
     // Web UI 访问控制
-    webuiSettingsForm: document.getElementById('webui-settings-form')
+    webuiSettingsForm: document.getElementById('webui-settings-form'),
+    // 账号池控制器
+    accountPoolEnabled: document.getElementById('account-pool-enabled'),
+    accountPoolCpaServiceId: document.getElementById('account-pool-cpa-service-id'),
+    accountPoolRefreshBtn: document.getElementById('account-pool-refresh-btn'),
+    accountPoolStartBtn: document.getElementById('account-pool-start-btn'),
+    accountPoolStopBtn: document.getElementById('account-pool-stop-btn'),
+    accountPoolRunOnceBtn: document.getElementById('account-pool-run-once-btn'),
+    accountPoolStatusRunning: document.getElementById('account-pool-status-running'),
+    accountPoolStatusEnabled: document.getElementById('account-pool-status-enabled'),
+    accountPoolStatusExternalCount: document.getElementById('account-pool-status-external-count'),
+    accountPoolStatusLocalCount: document.getElementById('account-pool-status-local-count'),
+    accountPoolStatusCpaTarget: document.getElementById('account-pool-status-cpa-target'),
+    accountPoolStatusFailureCount: document.getElementById('account-pool-status-failure-count'),
+    accountPoolStatusLastStarted: document.getElementById('account-pool-status-last-started'),
+    accountPoolStatusLastFinished: document.getElementById('account-pool-status-last-finished'),
+    accountPoolStatusNextRetry: document.getElementById('account-pool-status-next-retry'),
+    accountPoolStatusTriggeredCount: document.getElementById('account-pool-status-triggered-count'),
+    accountPoolStatusDeletedCount: document.getElementById('account-pool-status-deleted-count'),
+    accountPoolStatusTransientCount: document.getElementById('account-pool-status-transient-count'),
+    accountPoolStatusBatchId: document.getElementById('account-pool-status-batch-id'),
+    accountPoolStatusLastError: document.getElementById('account-pool-status-last-error'),
+    accountPoolDeletedDetails: document.getElementById('account-pool-deleted-details'),
+    accountPoolDeletedList: document.getElementById('account-pool-deleted-list'),
+    accountPoolTransientDetails: document.getElementById('account-pool-transient-details'),
+    accountPoolTransientList: document.getElementById('account-pool-transient-list')
 };
 
 // 选中的服务 ID
 let selectedServiceIds = new Set();
+let cachedCpaServices = [];
+let accountPoolStatusPollTimer = null;
+let accountPoolStatusLoading = false;
+const ACCOUNT_POOL_STATUS_POLL_INTERVAL_MS = 15000;
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
@@ -105,6 +135,12 @@ function initTabs() {
 
             btn.classList.add('active');
             document.getElementById(`${tab}-tab`).classList.add('active');
+
+            if (tab === 'account-pool') {
+                startAccountPoolStatusPolling(true);
+            } else {
+                stopAccountPoolStatusPolling();
+            }
         });
     });
 }
@@ -114,6 +150,9 @@ function initEventListeners() {
     // 注册配置表单
     if (elements.registrationForm) {
         elements.registrationForm.addEventListener('submit', handleSaveRegistration);
+    }
+    if (elements.accountPoolForm) {
+        elements.accountPoolForm.addEventListener('submit', handleSaveAccountPoolSettings);
     }
 
     // 备份数据库
@@ -247,6 +286,18 @@ function initEventListeners() {
     if (elements.webuiSettingsForm) {
         elements.webuiSettingsForm.addEventListener('submit', handleSaveWebuiSettings);
     }
+    if (elements.accountPoolRefreshBtn) {
+        elements.accountPoolRefreshBtn.addEventListener('click', handleRefreshAccountPoolStatus);
+    }
+    if (elements.accountPoolStartBtn) {
+        elements.accountPoolStartBtn.addEventListener('click', handleStartAccountPool);
+    }
+    if (elements.accountPoolStopBtn) {
+        elements.accountPoolStopBtn.addEventListener('click', handleStopAccountPool);
+    }
+    if (elements.accountPoolRunOnceBtn) {
+        elements.accountPoolRunOnceBtn.addEventListener('click', handleRunAccountPoolOnce);
+    }
     // Team Manager 服务管理
     if (elements.addTmServiceBtn) {
         elements.addTmServiceBtn.addEventListener('click', () => openTmServiceModal());
@@ -332,6 +383,36 @@ async function loadSettings() {
         document.getElementById('sleep-min').value = data.registration?.sleep_min || 5;
         document.getElementById('sleep-max').value = data.registration?.sleep_max || 30;
 
+        if (data.account_pool) {
+            document.getElementById('account-pool-enabled').checked = !!data.account_pool.enabled;
+            document.getElementById('account-pool-target-count').value = data.account_pool.target_count || 0;
+            document.getElementById('account-pool-poll-interval-seconds').value = data.account_pool.poll_interval_seconds || 300;
+            document.getElementById('account-pool-health-check-batch-size').value = data.account_pool.health_check_batch_size || 20;
+            document.getElementById('account-pool-registration-email-service-type').value =
+                data.account_pool.registration_email_service_type || 'tempmail';
+            document.getElementById('account-pool-registration-interval-min').value =
+                data.account_pool.registration_interval_min || 5;
+            document.getElementById('account-pool-registration-interval-max').value =
+                data.account_pool.registration_interval_max || 15;
+            document.getElementById('account-pool-registration-concurrency').value =
+                data.account_pool.registration_concurrency || 1;
+            document.getElementById('account-pool-max-registration-burst').value =
+                data.account_pool.max_registration_burst || 5;
+            document.getElementById('account-pool-retry-max-retries').value =
+                data.account_pool.retry_max_retries || 3;
+            document.getElementById('account-pool-retry-base-delay-seconds').value =
+                data.account_pool.retry_base_delay_seconds || 5;
+            document.getElementById('account-pool-retry-max-delay-seconds').value =
+                data.account_pool.retry_max_delay_seconds || 300;
+            if (elements.accountPoolCpaServiceId) {
+                const selectedCpaServiceId = String(data.account_pool.cpa_service_id || 0);
+                elements.accountPoolCpaServiceId.dataset.pendingValue = selectedCpaServiceId;
+                if (elements.accountPoolCpaServiceId.options.length > 0) {
+                    elements.accountPoolCpaServiceId.value = selectedCpaServiceId;
+                }
+            }
+        }
+
         // 验证码等待配置
         if (data.email_code) {
             document.getElementById('email-code-timeout').value = data.email_code.timeout || 120;
@@ -349,6 +430,8 @@ async function loadSettings() {
                 input.placeholder = '已配置，留空保持不变';
             }
         }
+
+        loadAccountPoolStatus();
 
     } catch (error) {
         console.error('加载设置失败:', error);
@@ -481,6 +564,283 @@ async function handleSaveRegistration(e) {
     } catch (error) {
         toast.error('保存失败: ' + error.message);
     }
+}
+
+function formatAccountPoolText(value, fallback = '-') {
+    if (value === null || value === undefined || value === '') {
+        return fallback;
+    }
+    return String(value);
+}
+
+function formatAccountPoolDate(value) {
+    if (!value) {
+        return '-';
+    }
+    return format.date(value);
+}
+
+function populateAccountPoolCpaServiceOptions(services) {
+    if (!elements.accountPoolCpaServiceId) return;
+
+    cachedCpaServices = Array.isArray(services) ? services : [];
+    const pendingValue = elements.accountPoolCpaServiceId.dataset.pendingValue
+        || elements.accountPoolCpaServiceId.value
+        || '0';
+
+    const options = [
+        '<option value="0">自动选择启用服务</option>',
+        ...cachedCpaServices.map(service => {
+            const disabledTag = service.enabled ? '' : '（已禁用）';
+            return `<option value="${service.id}">#${service.id} ${escapeHtml(service.name)}${disabledTag}</option>`;
+        }),
+    ];
+
+    elements.accountPoolCpaServiceId.innerHTML = options.join('');
+    elements.accountPoolCpaServiceId.value = pendingValue;
+    if (elements.accountPoolCpaServiceId.value !== pendingValue) {
+        elements.accountPoolCpaServiceId.value = '0';
+    }
+}
+
+function renderAccountPoolStatus(status) {
+    if (!status) {
+        return;
+    }
+
+    const cpaTarget = status.cpa_target
+        ? [status.cpa_target.service_name, status.cpa_target.source].filter(Boolean).join(' / ')
+        : '-';
+    const deletedCount = Array.isArray(status.deleted_account_ids)
+        ? status.deleted_account_ids.length
+        : 0;
+    const transientCount = Array.isArray(status.transient_validation_failures)
+        ? status.transient_validation_failures.length
+        : 0;
+
+    elements.accountPoolStatusRunning.textContent = status.running ? '✅ 运行中' : '⏸️ 已停止';
+    elements.accountPoolStatusEnabled.textContent = status.controller_enabled ? '✅ 已启用' : '⭕ 未启用';
+    elements.accountPoolStatusExternalCount.textContent =
+        formatAccountPoolText(status.external_available_count, '-');
+    elements.accountPoolStatusLocalCount.textContent =
+        formatAccountPoolText(status.local_active_count, '-');
+    elements.accountPoolStatusCpaTarget.textContent = cpaTarget || '-';
+    elements.accountPoolStatusFailureCount.textContent =
+        formatAccountPoolText(status.consecutive_failure_count, '0');
+    elements.accountPoolStatusLastStarted.textContent =
+        formatAccountPoolDate(status.last_run_started_at);
+    elements.accountPoolStatusLastFinished.textContent =
+        formatAccountPoolDate(status.last_run_finished_at);
+    elements.accountPoolStatusNextRetry.textContent =
+        formatAccountPoolDate(status.next_retry_at);
+    elements.accountPoolStatusTriggeredCount.textContent =
+        formatAccountPoolText(status.triggered_registration_count, '0');
+    elements.accountPoolStatusDeletedCount.textContent = String(deletedCount);
+    elements.accountPoolStatusTransientCount.textContent = String(transientCount);
+    elements.accountPoolStatusBatchId.textContent =
+        formatAccountPoolText(status.triggered_batch_id, '-');
+    elements.accountPoolStatusLastError.textContent =
+        formatAccountPoolText(status.last_error, '-');
+    renderAccountPoolStatusList(
+        status.deleted_account_ids,
+        elements.accountPoolDeletedList,
+        elements.accountPoolDeletedDetails,
+        '暂无删除记录',
+    );
+    renderAccountPoolStatusList(
+        status.transient_validation_failures,
+        elements.accountPoolTransientList,
+        elements.accountPoolTransientDetails,
+        '暂无失败记录',
+    );
+    updateAccountPoolActionButtons(status);
+}
+
+function stringifyAccountPoolStatusItem(item) {
+    if (Array.isArray(item)) {
+        return item.map(part => stringifyAccountPoolStatusItem(part)).join(' | ');
+    }
+    if (item && typeof item === 'object') {
+        try {
+            return JSON.stringify(item, null, 2);
+        } catch (error) {
+            return String(item);
+        }
+    }
+    return String(item);
+}
+
+function renderAccountPoolStatusList(items, listElement, detailsElement, emptyText) {
+    if (!listElement || !detailsElement) {
+        return;
+    }
+
+    const normalizedItems = Array.isArray(items) ? items : [];
+    if (normalizedItems.length === 0) {
+        listElement.innerHTML = `<li>${escapeHtml(emptyText)}</li>`;
+        detailsElement.open = false;
+        return;
+    }
+
+    listElement.innerHTML = normalizedItems.map(item => {
+        const text = stringifyAccountPoolStatusItem(item);
+        return `<li style="white-space: pre-wrap;">${escapeHtml(text)}</li>`;
+    }).join('');
+}
+
+function updateAccountPoolActionButtons(status) {
+    if (!elements.accountPoolStartBtn || !elements.accountPoolStopBtn || !elements.accountPoolRunOnceBtn) {
+        return;
+    }
+
+    const running = !!status?.running;
+    elements.accountPoolStartBtn.disabled = running;
+    elements.accountPoolStopBtn.disabled = !running;
+    elements.accountPoolRunOnceBtn.disabled = accountPoolStatusLoading;
+}
+
+function stopAccountPoolStatusPolling() {
+    if (accountPoolStatusPollTimer) {
+        clearInterval(accountPoolStatusPollTimer);
+        accountPoolStatusPollTimer = null;
+    }
+}
+
+function startAccountPoolStatusPolling(runImmediately = false) {
+    if (!elements.accountPoolStatusRunning) {
+        return;
+    }
+
+    stopAccountPoolStatusPolling();
+
+    if (runImmediately) {
+        loadAccountPoolStatus();
+    }
+
+    accountPoolStatusPollTimer = setInterval(() => {
+        loadAccountPoolStatus();
+    }, ACCOUNT_POOL_STATUS_POLL_INTERVAL_MS);
+}
+
+async function loadAccountPoolStatus(notifyOnError = false) {
+    if (!elements.accountPoolStatusRunning) {
+        return;
+    }
+    if (accountPoolStatusLoading) {
+        return;
+    }
+
+    accountPoolStatusLoading = true;
+    updateAccountPoolActionButtons({
+        running: elements.accountPoolStatusRunning.textContent.includes('运行中'),
+    });
+    try {
+        const status = await api.get('/account-pool/status');
+        renderAccountPoolStatus(status);
+    } catch (error) {
+        console.error('加载账号池状态失败:', error);
+        if (notifyOnError) {
+            toast.error('加载账号池状态失败: ' + error.message);
+        }
+    } finally {
+        accountPoolStatusLoading = false;
+        updateAccountPoolActionButtons({
+            running: elements.accountPoolStatusRunning.textContent.includes('运行中'),
+        });
+    }
+}
+
+async function handleSaveAccountPoolSettings(e) {
+    e.preventDefault();
+
+    const data = {
+        enabled: !!document.getElementById('account-pool-enabled').checked,
+        target_count: parseInt(document.getElementById('account-pool-target-count').value, 10) || 0,
+        poll_interval_seconds: parseInt(document.getElementById('account-pool-poll-interval-seconds').value, 10) || 300,
+        health_check_batch_size: parseInt(document.getElementById('account-pool-health-check-batch-size').value, 10) || 20,
+        registration_email_service_type: document.getElementById('account-pool-registration-email-service-type').value,
+        registration_interval_min: parseInt(document.getElementById('account-pool-registration-interval-min').value, 10) || 0,
+        registration_interval_max: parseInt(document.getElementById('account-pool-registration-interval-max').value, 10) || 0,
+        registration_concurrency: parseInt(document.getElementById('account-pool-registration-concurrency').value, 10) || 1,
+        max_registration_burst: parseInt(document.getElementById('account-pool-max-registration-burst').value, 10) || 1,
+        retry_max_retries: parseInt(document.getElementById('account-pool-retry-max-retries').value, 10) || 0,
+        retry_base_delay_seconds: parseInt(document.getElementById('account-pool-retry-base-delay-seconds').value, 10) || 1,
+        retry_max_delay_seconds: parseInt(document.getElementById('account-pool-retry-max-delay-seconds').value, 10) || 1,
+        cpa_service_id: parseInt(elements.accountPoolCpaServiceId?.value || '0', 10) || 0,
+    };
+
+    if (data.target_count < 0) {
+        toast.error('目标数量不能小于 0');
+        return;
+    }
+    if (data.poll_interval_seconds < 5) {
+        toast.error('巡检间隔不能小于 5 秒');
+        return;
+    }
+    if (data.health_check_batch_size < 1) {
+        toast.error('健康检查批量大小不能小于 1');
+        return;
+    }
+    if (data.registration_interval_max < data.registration_interval_min) {
+        toast.error('注册等待时间区间无效');
+        return;
+    }
+    if (data.registration_concurrency < 1) {
+        toast.error('注册并发数不能小于 1');
+        return;
+    }
+    if (data.max_registration_burst < 1) {
+        toast.error('单轮最大补量不能小于 1');
+        return;
+    }
+    if (data.retry_base_delay_seconds < 1 || data.retry_max_delay_seconds < data.retry_base_delay_seconds) {
+        toast.error('退避时间参数无效');
+        return;
+    }
+
+    try {
+        await api.post('/settings/account-pool', data);
+        toast.success('账号池控制器设置已保存');
+        await loadAccountPoolStatus(true);
+    } catch (error) {
+        toast.error('保存失败: ' + error.message);
+    }
+}
+
+async function handleRefreshAccountPoolStatus() {
+    await loadAccountPoolStatus(true);
+}
+
+async function runAccountPoolAction(button, endpoint, successMessage, enabledValue = null) {
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '处理中...';
+
+    try {
+        await api.post(endpoint);
+        if (enabledValue !== null && elements.accountPoolEnabled) {
+            elements.accountPoolEnabled.checked = enabledValue;
+        }
+        toast.success(successMessage);
+        await loadAccountPoolStatus(true);
+    } catch (error) {
+        toast.error('操作失败: ' + error.message);
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
+}
+
+async function handleStartAccountPool() {
+    await runAccountPoolAction(elements.accountPoolStartBtn, '/account-pool/start', '账号池控制器已启动', true);
+}
+
+async function handleStopAccountPool() {
+    await runAccountPoolAction(elements.accountPoolStopBtn, '/account-pool/stop', '账号池控制器已停止', false);
+}
+
+async function handleRunAccountPoolOnce() {
+    await runAccountPoolAction(elements.accountPoolRunOnceBtn, '/account-pool/run-once', '账号池巡检已触发');
 }
 
 // 保存验证码等待配置
@@ -1222,8 +1582,10 @@ async function loadCpaServices() {
     if (!elements.cpaServicesTable) return;
     try {
         const services = await api.get('/cpa-services');
+        populateAccountPoolCpaServiceOptions(services);
         renderCpaServicesTable(services);
     } catch (e) {
+        populateAccountPoolCpaServiceOptions([]);
         elements.cpaServicesTable.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--danger-color);">${e.message}</td></tr>`;
     }
 }

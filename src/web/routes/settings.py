@@ -59,6 +59,23 @@ class WebUISettings(BaseModel):
     access_password: Optional[str] = None
 
 
+class AccountPoolSettings(BaseModel):
+    """账号池控制器设置"""
+    enabled: bool = False
+    target_count: int = 0
+    poll_interval_seconds: int = 300
+    health_check_batch_size: int = 20
+    registration_email_service_type: str = "tempmail"
+    registration_interval_min: int = 5
+    registration_interval_max: int = 15
+    registration_concurrency: int = 1
+    max_registration_burst: int = 5
+    retry_max_retries: int = 3
+    retry_base_delay_seconds: int = 5
+    retry_max_delay_seconds: int = 300
+    cpa_service_id: int = 0
+
+
 class AllSettings(BaseModel):
     """所有设置"""
     proxy: ProxySettings
@@ -93,6 +110,21 @@ async def get_all_settings():
             "default_password_length": settings.registration_default_password_length,
             "sleep_min": settings.registration_sleep_min,
             "sleep_max": settings.registration_sleep_max,
+        },
+        "account_pool": {
+            "enabled": settings.account_pool_enabled,
+            "target_count": settings.account_pool_target_count,
+            "poll_interval_seconds": settings.account_pool_poll_interval_seconds,
+            "health_check_batch_size": settings.account_pool_health_check_batch_size,
+            "registration_email_service_type": settings.account_pool_registration_email_service_type,
+            "registration_interval_min": settings.account_pool_registration_interval_min,
+            "registration_interval_max": settings.account_pool_registration_interval_max,
+            "registration_concurrency": settings.account_pool_registration_concurrency,
+            "max_registration_burst": settings.account_pool_max_registration_burst,
+            "retry_max_retries": settings.account_pool_retry_max_retries,
+            "retry_base_delay_seconds": settings.account_pool_retry_base_delay_seconds,
+            "retry_max_delay_seconds": settings.account_pool_retry_max_delay_seconds,
+            "cpa_service_id": settings.account_pool_cpa_service_id,
         },
         "webui": {
             "host": settings.webui_host,
@@ -223,6 +255,76 @@ async def update_registration_settings(request: RegistrationSettings):
     )
 
     return {"success": True, "message": "注册设置已更新"}
+
+
+@router.get("/account-pool")
+async def get_account_pool_settings():
+    """获取账号池控制器设置。"""
+    settings = get_settings()
+    return {
+        "enabled": settings.account_pool_enabled,
+        "target_count": settings.account_pool_target_count,
+        "poll_interval_seconds": settings.account_pool_poll_interval_seconds,
+        "health_check_batch_size": settings.account_pool_health_check_batch_size,
+        "registration_email_service_type": settings.account_pool_registration_email_service_type,
+        "registration_interval_min": settings.account_pool_registration_interval_min,
+        "registration_interval_max": settings.account_pool_registration_interval_max,
+        "registration_concurrency": settings.account_pool_registration_concurrency,
+        "max_registration_burst": settings.account_pool_max_registration_burst,
+        "retry_max_retries": settings.account_pool_retry_max_retries,
+        "retry_base_delay_seconds": settings.account_pool_retry_base_delay_seconds,
+        "retry_max_delay_seconds": settings.account_pool_retry_max_delay_seconds,
+        "cpa_service_id": settings.account_pool_cpa_service_id,
+    }
+
+
+@router.post("/account-pool")
+async def update_account_pool_settings(request: AccountPoolSettings):
+    """更新账号池控制器设置。"""
+    if request.target_count < 0:
+        raise HTTPException(status_code=400, detail="目标数量不能小于 0")
+    if request.poll_interval_seconds < 5:
+        raise HTTPException(status_code=400, detail="巡检间隔不能小于 5 秒")
+    if request.health_check_batch_size < 1:
+        raise HTTPException(status_code=400, detail="健康检查批量大小不能小于 1")
+    if request.registration_interval_min < 0 or request.registration_interval_max < request.registration_interval_min:
+        raise HTTPException(status_code=400, detail="注册间隔参数无效")
+    if request.registration_concurrency < 1:
+        raise HTTPException(status_code=400, detail="注册并发数不能小于 1")
+    if request.max_registration_burst < 1:
+        raise HTTPException(status_code=400, detail="单轮最大补量不能小于 1")
+    if request.retry_max_retries < 0:
+        raise HTTPException(status_code=400, detail="重试次数不能小于 0")
+    if request.retry_base_delay_seconds < 1 or request.retry_max_delay_seconds < request.retry_base_delay_seconds:
+        raise HTTPException(status_code=400, detail="退避延迟参数无效")
+    if request.cpa_service_id < 0:
+        raise HTTPException(status_code=400, detail="CPA 服务 ID 不能小于 0")
+
+    update_settings(
+        account_pool_enabled=request.enabled,
+        account_pool_target_count=request.target_count,
+        account_pool_poll_interval_seconds=request.poll_interval_seconds,
+        account_pool_health_check_batch_size=request.health_check_batch_size,
+        account_pool_registration_email_service_type=request.registration_email_service_type,
+        account_pool_registration_interval_min=request.registration_interval_min,
+        account_pool_registration_interval_max=request.registration_interval_max,
+        account_pool_registration_concurrency=request.registration_concurrency,
+        account_pool_max_registration_burst=request.max_registration_burst,
+        account_pool_retry_max_retries=request.retry_max_retries,
+        account_pool_retry_base_delay_seconds=request.retry_base_delay_seconds,
+        account_pool_retry_max_delay_seconds=request.retry_max_delay_seconds,
+        account_pool_cpa_service_id=request.cpa_service_id,
+    )
+
+    from ..account_pool_controller import get_account_pool_controller
+
+    controller = get_account_pool_controller()
+    if request.enabled:
+        await controller.start()
+    else:
+        await controller.stop()
+
+    return {"success": True, "message": "账号池控制器设置已更新"}
 
 
 @router.post("/webui")
